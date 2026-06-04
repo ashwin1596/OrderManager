@@ -55,11 +55,27 @@ void test_cancel_order(){
     std::cout << "test_cancel_order PASSED\n";
 }
 
+void test_fills_reported(){
+    Orderbook book;
+    book.add(1, 100, 10, Side::Ask);
+
+    std::vector<Fill> fills;
+    book.add(2, 100, 4, Side::Bid, [&](const Fill& f){ fills.push_back(f); });
+
+    assert(fills.size() == 1);
+    assert(fills[0].qty == 4);
+    assert(fills[0].price == 100);
+    assert(fills[0].resting_Id == 1);
+    assert(fills[0].aggressor_id == 2);
+    std::cout << "test_fills_reported PASSED\n";
+}
+
 int main(){
     test_resting_bid_lands_on_bid_side();
     test_crossing_order_fills();
     test_sweep_two_levels();
     test_cancel_order();
+    test_fills_reported();
     std::cout << "ALL TESTS PASSED\n";
 
     return 0;
