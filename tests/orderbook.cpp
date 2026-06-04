@@ -175,6 +175,76 @@ void test_modify_order_unknown_id(){
     std::cout << "test_modify_order_unknown_id PASSED\n";
 }
 
+void test_best_bid(){
+    Orderbook book;
+    book.add(1, 100, 10, Side::Bid);
+    book.add(2, 120, 20, Side::Bid);
+    book.add(3, 90, 10, Side::Bid);
+    
+    assert(book.best_bid() == 120);
+    book.cancel(2);
+    assert(book.best_bid() == 100);
+    book.cancel(1);
+    book.cancel(3);
+    assert(!book.best_bid().has_value());
+    std::cout << "test_best_bid PASSED\n";
+}
+
+void test_best_ask(){
+    Orderbook book;
+    book.add(1, 100, 10, Side::Ask);
+    book.add(2, 120, 20, Side::Ask);
+    book.add(3, 90, 10, Side::Ask);
+    
+    assert(book.best_ask() == 90);
+    book.cancel(3);
+    assert(book.best_ask() == 100);
+    book.cancel(1);
+    book.cancel(2);
+    assert(!book.best_ask().has_value());
+    std::cout << "test_best_ask PASSED\n";
+}
+
+void test_spread(){
+    Orderbook book;
+    book.add(1, 100, 10, Side::Bid);
+    book.add(2, 120, 20, Side::Ask);
+    
+    assert(book.spread() == 20);
+    book.cancel(1);
+    book.cancel(2);
+    assert(!book.spread().has_value());
+    std::cout << "test_spread PASSED\n";
+}
+
+void test_best_bid_qty(){
+    Orderbook book;
+    book.add(1, 100, 12, Side::Bid);
+    book.add(2, 120, 20, Side::Bid);
+    book.add(3, 90, 10, Side::Bid);
+    
+    assert(book.best_bid_qty() == 20);
+    book.cancel(1);
+    book.cancel(2);
+    book.cancel(3);
+    assert(!book.best_bid_qty().has_value());
+    std::cout << "test_best_bid_qty PASSED\n";
+}
+
+void test_best_ask_qty(){
+    Orderbook book;
+    book.add(1, 100, 10, Side::Ask);
+    book.add(2, 120, 20, Side::Ask);
+    book.add(3, 90, 12, Side::Ask);
+    
+    assert(book.best_ask_qty() == 12);
+    book.cancel(1);
+    book.cancel(2);
+    book.cancel(3);
+    assert(!book.best_ask_qty().has_value());
+    std::cout << "test_best_ask_qty PASSED\n";
+}
+
 int main(){
     test_resting_bid_lands_on_bid_side();
     test_crossing_order_fills();
@@ -188,6 +258,11 @@ int main(){
     test_modify_order_reprice_with_cross();
     test_modify_order_qty_increase_loses_priority();
     test_modify_order_unknown_id();
+    test_best_ask();
+    test_best_ask_qty();
+    test_best_bid();
+    test_best_bid_qty();
+    test_spread();
     std::cout << "ALL TESTS PASSED\n";
 
     return 0;
