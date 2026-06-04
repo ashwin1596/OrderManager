@@ -6,6 +6,7 @@
 #include <functional>   // std::greater
 #include <algorithm>
 #include <cassert>
+#include <optional>
 
 enum class Side : std::uint8_t { Bid, Ask };
 
@@ -47,6 +48,11 @@ struct Fill {
     OrderId aggressor_id;
 
     Fill (Price price_, Quantity qty_, OrderId resting_id_, OrderId aggressor_id_): price(price_), qty(qty_), resting_Id(resting_id_), aggressor_id(aggressor_id_) {}
+};
+
+struct TopOfBook {
+    Price price;
+    Quantity qty;
 };
 
 class Orderbook {
@@ -144,6 +150,62 @@ public:
 
     bool has_order(OrderId id) const {
         return order_index_.count(id) > 0;
+    }
+
+    std::optional<Price> best_bid() const {
+        if (bids_.empty())
+            return std::nullopt;
+        
+        return bids_.begin()->first;
+    }
+
+    std::optional<Price> best_ask() const {
+        if (asks_.empty())
+            return std::nullopt;
+        
+        return asks_.begin()->first;
+    }
+
+    std::optional<Price> spread() const {
+        std::optional<Price> best_bid_price = best_bid();
+        std::optional<Price> best_ask_price = best_ask();
+
+        if (best_bid_price.has_value() && best_ask_price.has_value()) {
+            assert(best_ask_price.value() > best_bid_price.value() && "Best bid is greater than best ask - book invariant doesn't hold!");
+            return best_ask_price.value() - best_bid_price.value();
+        }
+        
+        return std::nullopt;
+    }
+
+    std::optional<Quantity> best_bid_qty() const {
+        if (bids_.empty())
+            return std::nullopt;   
+            
+        return bids_.begin()->second.total_quantity;
+    }
+
+    std::optional<Quantity> best_ask_qty() const {
+        if (asks_.empty())
+            return std::nullopt;
+        
+        return asks_.begin()->second.total_quantity;
+    }
+
+    std::optional<TopOfBook> best_bid_level() const {
+        if (bids_.empty())
+            return std::nullopt;       
+        
+        auto level_it = bids_.begin();
+        return TopOfBook{level_it->first, level_it->second.total_quantity};
+    }
+
+    std::optional<TopOfBook> best_ask_level() const {
+        if (asks_.empty())
+            return std::nullopt;       
+        
+        auto level_it = asks_.begin();
+        return TopOfBook{level_it->first, level_it->second.total_quantity};
     }
 
 private:
