@@ -2,11 +2,12 @@
 #include <cstdint>
 #include <map>
 #include <unordered_map>
-#include <list>
 #include <functional>   // std::greater
 #include <algorithm>
 #include <cassert>
 #include <optional>
+
+#include "ObjectPool.h"
 
 enum class Side : std::uint8_t { Bid, Ask };
 
@@ -22,23 +23,26 @@ struct Order {
     Price    price;     // mutable: amend / repricing
     Quantity quantity;  // mutable: decreases on partial fills
     Side     side;
+    Order* prev = nullptr;
+    Order* next = nullptr;
 
     Order(OrderId id_, Price price_, Quantity quantity_, Side side_)
         : id(id_), price(price_), quantity(quantity_), side(side_) {}
 };
 
 struct Level {
-    std::list<Order> orders;
+    Order* head = nullptr;
+    Order* tail = nullptr;
     Quantity total_quantity = 0;   // running sum — O(1) "size at this level"
 };
 
 struct OrderLocation {
     Side  side;
     Price price;
-    std::list<Order>::iterator it;
+    Order* node;
 
-    OrderLocation(Side side_, Price price_, std::list<Order>::iterator it_)
-        : side(side_), price(price_), it(it_) {}
+    OrderLocation(Side side_, Price price_, Order* node_)
+        : side(side_), price(price_), node(node_) {}
 };
 
 struct Fill {
@@ -57,7 +61,8 @@ struct TopOfBook {
 
 class Orderbook {
 public:
-    Orderbook() = default;
+    // Orderbook() = default;
+    explicit Orderbook(std::size_t capacity = 1'000'000): pool_(capacity) {} 
 
     // Non-copyable and non-movable: the book owns cross-referencing state
     // (iterators into per-level lists; later, Level* in OrderLocation) that
@@ -99,8 +104,8 @@ public:
 
         const OrderLocation& loc = ord_it->second;
         return loc.side == Side::Ask
-            ? cancelFrom(asks_, id, loc.price, loc.it)
-            : cancelFrom(bids_, id, loc.price, loc.it);
+            ? cancelFrom(asks_, id, loc.price, loc.node)
+            : cancelFrom(bids_, id, loc.price, loc.node);
     }
 
     template <typename FillHandler>
@@ -111,8 +116,8 @@ public:
         const OrderLocation& loc = ord_it->second;
         Side side = loc.side;
         Price curr_price = loc.price;
-        auto list_it = loc.it;
-        Quantity curr_qty = list_it->quantity;
+        Order* modify_order = loc.node;
+        Quantity curr_qty = modify_order->quantity;
         
         if (new_qty == 0)  { return cancel(id); }
 
@@ -120,7 +125,7 @@ public:
 
         if (fast_path){
             Quantity qty_change = curr_qty - new_qty;
-            list_it->quantity = new_qty;
+            modify_order->quantity = new_qty;
             side == Side::Ask
             ? reducePriceQty(asks_, curr_price, qty_change)
             : reducePriceQty(bids_, curr_price, qty_change);
@@ -209,6 +214,7 @@ public:
     }
 
 private:
+    ObjectPool<Order> pool_;
     std::map<Price, Level, std::greater<Price>> bids_;   // highest bid first
     std::map<Price, Level>                      asks_;   // lowest ask first
     std::unordered_map<OrderId, OrderLocation>  order_index_;
@@ -228,7 +234,7 @@ private:
 
                 matchAtLevel(order, level_it->second, on_fill);
 
-                if (level_it->second.orders.empty()){
+                if (level_it->second.head == nullptr){
                     asks_.erase(level_it);  // level exhausted - remove
                 }
             }
@@ -242,7 +248,7 @@ private:
 
                 matchAtLevel(order, level_it->second, on_fill);
 
-                if (level_it->second.orders.empty()){
+                if (level_it->second.head == nullptr){
                     bids_.erase(level_it);  // level exhausted - remove
                 }
             }
@@ -251,60 +257,95 @@ private:
 
     template <typename FillHandler>
     void matchAtLevel(Order& order, Level& level, FillHandler& on_fill){
-        auto it = level.orders.begin();
-
-        while (order.quantity > 0 && it != level.orders.end())
+        while (order.quantity > 0 && level.head != nullptr)
         {
-            /* decrement quantities and remove fully filled resting orders */
-            Quantity matching_qty = std::min(order.quantity, it->quantity);
+            Order* resting = level.head;
+            Quantity matching_qty = std::min(order.quantity, resting->quantity);
             order.quantity -= matching_qty;
-            it->quantity -= matching_qty;
+            resting->quantity -= matching_qty;
             level.total_quantity -= matching_qty;
 
-            on_fill(Fill{it->price, matching_qty, it->id, order.id});
+            on_fill(Fill{resting->price, matching_qty, resting->id, order.id});
 
-            if (it->quantity == 0) {
-                order_index_.erase(it->id);
-                it = level.orders.erase(it);   // erase returns next; do NOT ++it
-            } else {
-                ++it;                          // partial fill — order survives, advance
+            if (resting->quantity == 0) {  //  resting order - completely filled - remove 
+                level.head = resting->next;
+                if (level.head == nullptr){  // resting order was the only order in the list
+                    level.tail = nullptr;                    
+                } else  {
+                    level.head->prev = nullptr;
+                }
+                order_index_.erase(resting->id);
+                pool_.deallocate(resting);
+            } else {  // partial fill — resting order stays at head, incoming exhausted
+                break;                         
             }
         }
     }
 
     void restOrder(Order& order){
-        auto list_it = order.side == Side::Bid
+        auto node = order.side == Side::Bid
                         ? insertInto(bids_, order)
                         : insertInto(asks_, order);
         
-        order_index_.emplace(order.id, OrderLocation{order.side, order.price, list_it});
+        order_index_.emplace(order.id, OrderLocation{order.side, order.price, node});
     }
 
     template <typename BookSide>
-    std::list<Order>::iterator insertInto(BookSide& book, const Order& order){
+    Order* insertInto(BookSide& book, const Order& order){
+        Order* pool_order = pool_.allocate(order.id, order.price, order.quantity, order.side);
+
+        assert(pool_order != nullptr && "pool_ is exhausted");
+
         Level& level = book[order.price];
-        level.orders.emplace_back(order);
+
+        /*Add the order*/
+        if (level.tail == nullptr){  // level - empty
+            level.tail = pool_order;
+            level.head = pool_order;
+        }
+        else {  // level - non-empty
+            level.tail->next = pool_order;
+            pool_order->prev = level.tail;
+            level.tail = pool_order;
+        }
+        
         level.total_quantity += order.quantity;              
-        return std::prev(level.orders.end());
+        return pool_order;
     }
 
     template <typename BookSide>
-    bool cancelFrom(BookSide& book, OrderId id, Price price, std::list<Order>::iterator it){
+    bool cancelFrom(BookSide& book, OrderId id, Price price, Order* cancel_order){
         auto level_it = book.find(price);
 
         assert(level_it != book.end() && "index/book desync");
 
         Level& level = level_it->second;
-        level.total_quantity -= it->quantity;
+        level.total_quantity -= cancel_order->quantity;
     
-        // erasing the order from the book - extract any order details right now if needed
-        level.orders.erase(it);
-
-        if (level.orders.empty()){
+        /* erasing the order from the book */
+        if (cancel_order->prev == nullptr && cancel_order->next == nullptr){  // cancel_order is the only order
+            level.head = nullptr;
+            level.tail = nullptr;
+        }
+        else if (cancel_order->prev == nullptr){  // cancel_order is at the head
+            level.head = cancel_order->next;
+            level.head->prev = nullptr;
+        }
+        else if (cancel_order->next == nullptr){  // cancel_order is at the tail
+            level.tail = cancel_order->prev;
+            level.tail->next = nullptr;
+        }
+        else {  // cancel_order is in the middle of the level
+            cancel_order->prev->next = cancel_order->next;
+            cancel_order->next->prev = cancel_order->prev;
+        }
+             
+        if (level.head == nullptr){
             book.erase(price);
         }
 
         order_index_.erase(id);
+        pool_.deallocate(cancel_order);
 
         return true;
     }
