@@ -77,7 +77,3 @@ g++ -std=c++17 -O2 -pthread pipeline_threaded.cpp -o pt && ./pt
 ## Notes on scope
 
 This is a learning and interview-preparation project, not a production trading system. The goal was to build each component to production-quality standards (correctness under sanitizers, benchmarking, profiling, honest tradeoff analysis) and to understand *why* low-latency systems are built the way they are. Numbers are from a development machine (WSL2) and are illustrative; the methodology and relative results are the point, not absolute figures.
-
-## License
-
-MIT
