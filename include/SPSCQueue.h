@@ -103,14 +103,3 @@ private:
     alignas(kCacheLine) std::atomic<std::size_t> head_{0};   // consumer writes
     alignas(kCacheLine) std::atomic<std::size_t> tail_{0};   // producer writes
 };
-
-
-/*
-Q1. Objective: best-price lookup + ordered iteration + insert/remove levels
-- std::map<Price, level>: This is a sorted binary search tree. good for searching fast and iterating in an order
-- std::priority_queue: This allows constant time access to the best price, and log(N) time for insert/remove and also allows for iterating in order. Once the best price is filled, we can remove that from the book, the next best becomes available at the top and we can keep going like that.
-- std::vector: We could keep a sorted vector of (price, level), it will give us the ordered iteration and best-price lookup but the insert and remove would be O(N) each.
-- hashmap - It cannot store the price levels in an order, so not good for that, even though it provides constant time insert/removal ops.
-
-So, I would go with std::priority_queue
-*/

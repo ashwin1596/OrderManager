@@ -51,6 +51,7 @@ struct Fill {
     OrderId resting_Id;
     OrderId aggressor_id;
 
+    Fill (){}
     Fill (Price price_, Quantity qty_, OrderId resting_id_, OrderId aggressor_id_): price(price_), qty(qty_), resting_Id(resting_id_), aggressor_id(aggressor_id_) {}
 };
 
