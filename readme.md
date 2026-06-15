@@ -1,4 +1,4 @@
-# OrderManager
+# Limit Order Book & Lock-Free Trading Pipeline
 
 A limit order book and lock-free trading pipeline written from scratch in modern C++ (C++17), built to study low-latency systems engineering: cache-aware data structures, the C++ memory model, lock-free concurrency, and measurement-driven optimization.
 
